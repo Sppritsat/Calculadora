@@ -58,11 +58,24 @@ Calculadora/
 - **JavaScript (ES6+)**: Lógica y cálculos
 - **Tailwind CSS**: Framework CSS (CDN)
 
-## 👥 Contribuir
+## 👥 Trabajar en Equipo
 
-¡Las contribuciones son bienvenidas! Este es un proyecto académico y estamos abiertos a mejoras.
+¡Este proyecto está diseñado para trabajo colaborativo entre compañeros!
 
-Por favor, lee [CONTRIBUTING.md](CONTRIBUTING.md) para detalles sobre nuestro código de conducta y el proceso para enviarnos pull requests.
+### Para Nuevos Colaboradores
+
+1. **Empieza aquí**: Lee la [Guía para Trabajo en Equipo](TEAM_GUIDE.md)
+2. **Configura tu entorno**: Sigue [SETUP.md](SETUP.md)
+3. **Aprende a contribuir**: Lee [CONTRIBUTING.md](CONTRIBUTING.md)
+
+### Documentación para Colaboradores
+
+- 📚 [Guía de Equipo](TEAM_GUIDE.md) - ¡Empieza aquí si eres nuevo!
+- 🛠️ [Guía de Configuración](SETUP.md) - Configura tu entorno
+- 🤝 [Guía de Contribución](CONTRIBUTING.md) - Cómo contribuir código
+- 🚀 [Inicio Rápido](QUICKSTART.md) - Cómo usar la calculadora
+- 🗺️ [Roadmap](ROADMAP.md) - Plan del proyecto y tareas
+- 📜 [Código de Conducta](CODE_OF_CONDUCT.md) - Reglas de convivencia
 
 ## 📝 Características Principales
 
