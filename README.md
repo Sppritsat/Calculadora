@@ -72,4 +72,10 @@ La documentación completa de arquitectura, diagramas UML, justificación de pat
 4.  Guarda el proyecto y recarga la página para verificar la persistencia en Oracle.
 
 ---
-**Desarrollado por:** [Tu Nombre / Equipo] - Diseño de Software 2025.
+**Desarrollado por:** Equipo: 
+- Cesar Eduardo Juarez Jasso 
+- Jose Emilio Ortega Delgado
+- Jimena Diaz Esquivel
+- Karlo Antonio Ordaz De Vierna
+- Obed Esau Campos Cruhchy
+- Diseño de Software 2025.
