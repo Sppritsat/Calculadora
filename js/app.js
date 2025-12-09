@@ -362,39 +362,76 @@ function actualizarCostosMP(materiasPrimasCargadas = null) {
 function calcularComprasMP() {
     const costosMP = document.querySelectorAll('.costo-mp');
     globalData.costoMP = [];
-    globalData.comprasMP = [0,0,0,0,0];
-    for (let i = 0; i < costosMP.length; i++) { globalData.costoMP[i] = parseFloat(costosMP[i].value) || 0; }
+    globalData.comprasMP = [0,0,0,0,0]; // Reiniciamos
+    
+    // Guardamos los costos unitarios
+    for (let i = 0; i < costosMP.length; i++) {
+        globalData.costoMP[i] = parseFloat(costosMP[i].value) || 0;
+    }
+    
     const invInicialMP = parseFloat(document.getElementById('inv-inicial-mp').value) || 0;
     const invFinalMPPct = parseFloat(document.getElementById('inv-final-mp-pct').value) || 10;
+    
     let html = '<div class="space-y-4">';
     let totalCompras = [0,0,0,0,0];
     
     for (let mpIndex = 0; mpIndex < globalData.materiaPrima.length; mpIndex++) {
         const mp = globalData.materiaPrima[mpIndex];
         const costoUnitario = globalData.costoMP[mpIndex] || 0;
+        
         if (costoUnitario > 0) {
             html += `<div class="border-b pb-3"><div class="font-semibold text-gray-700 mb-2">${mp.nombre}</div>`;
+            
             for (let año = 0; año < 5; año++) {
+                // 1. Lo que necesitamos consumir para producir
                 const requerimiento = mp.consumoAnual[año] || 0;
+                
+                // 2. Lo que queremos que sobre al final (Inventario Final)
                 const invFinalMP = requerimiento * (invFinalMPPct / 100);
-                const invInicialMPAnual = año === 0 ? invInicialMP : (mp.consumoAnual[año-1] || 0) * (invFinalMPPct / 100);
-                const comprasRequeridas = requerimiento + invFinalMP - invInicialMPAnual;
-                const costoCompras = Math.max(0, comprasRequeridas) * costoUnitario;
+                
+                // 3. Lo que ya tenemos al principio (Inventario Inicial)
+                let invInicialEsteAno = 0;
+                if (año === 0) {
+                    // Año 1: Usamos lo que pusiste en la casilla
+                    invInicialEsteAno = invInicialMP;
+                } else {
+                    // Años 2-5: El inicial es lo que sobró del año pasado
+                    // (Consumo Año Anterior * %)
+                    const consumoAnterior = mp.consumoAnual[año-1] || 0;
+                    invInicialEsteAno = consumoAnterior * (invFinalMPPct / 100);
+                }
+                
+                // 4. Fórmula: (Lo que necesito + Lo que quiero guardar) - Lo que ya tengo
+                let comprasRequeridas = requerimiento + invFinalMP - invInicialEsteAno;
+                
+                // Si el resultado es negativo (tengo de sobra), no compro nada (0)
+                comprasRequeridas = Math.max(0, comprasRequeridas);
+                
+                const costoCompras = comprasRequeridas * costoUnitario;
+                
+                // Sumamos al total anual
                 totalCompras[año] += costoCompras;
+                
+                // Formato de moneda correcto
                 const costoFmt = costoCompras.toLocaleString(culturaActual, {style: 'currency', currency: monedaActual});
+                
                 html += `<div class="text-sm text-gray-600">Año ${año + 1}: ${costoFmt}</div>`;
             }
             html += '</div>';
         }
     }
+    
     html += '<div class="font-bold text-lg text-indigo-600 mt-4">Total de Compras por Año:</div>';
     for (let año = 0; año < 5; año++) {
         const totalFmt = totalCompras[año].toLocaleString(culturaActual, {style: 'currency', currency: monedaActual});
         html += `<div class="flex justify-between text-lg"><span>Año ${año + 1}:</span><span class="font-bold">${totalFmt}</span></div>`;
     }
     html += '</div>';
+    
     globalData.comprasMP = totalCompras;
     document.getElementById('compras-mp-resultado').innerHTML = html;
+    
+    // Actualizamos las cadenas dependientes
     calcularCostoProduccion();
     calcularCondicionesComerciales();
 }
@@ -904,6 +941,7 @@ function guardarProyecto() {
         dias_credito_compras: document.getElementById('dias-credito-compras').value,
         descuento_pronto_pago: document.getElementById('descuento-pronto-pago').value,
         inv_inicial_prod: document.getElementById('inv-inicial-prod').value,
+        inv_inicial_pt: document.getElementById('inv-inicial-pt').value,
         inv_final_a1: document.getElementById('inv-final-1').value,
         inv_final_a2: document.getElementById('inv-final-2').value,
         inv_final_a3: document.getElementById('inv-final-3').value,
@@ -1108,6 +1146,7 @@ function cargarProyecto(id) {
 
             // Pestaña 6
             document.getElementById('inv-inicial-prod').value = datos.inv_inicial_prod;
+            document.getElementById('inv-inicial-pt').value = datos.inv_inicial_pt;
             document.getElementById('inv-final-1').value = datos.inv_final_a1;
             document.getElementById('inv-final-2').value = datos.inv_final_a2;
             document.getElementById('inv-final-3').value = datos.inv_final_a3;
@@ -1287,7 +1326,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function iniciarSocket() {
     if (conn) conn.close();
-    conn = new WebSocket('ws://localhost:8081');
+    conn = new WebSocket('ws://localhost:8081');//aqui llama al socket
 
     conn.onopen = function(e) {
         console.log("✅ Conexión establecida con el Socket!");

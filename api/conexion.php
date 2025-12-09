@@ -1,17 +1,16 @@
 <?php
-// === CÓDIGO NUEVO (CONEXIÓN CONTENEDOR A CONTENEDOR) ===
+// Datos de conexión para Oracle en Docker
+$username = 'usuario_finanzas';
+$password = 'admin1234';
+$database = '//db:1521/XEPDB1'; // 'db' es el nombre del servicio en docker-compose
 
-$servidor = "db";       // <-- CAMBIO: Ya no es "127.0.0.1". Es el nombre del servicio de la BD.
-$usuario = "root";
-$contrasena = "admin1234"; // <-- La contraseña de tu docker-compose
-$base_de_datos = "analisis_financiero_db";
-$puerto = "3306";       // <-- CAMBIO: Usamos el puerto INTERNO de MySQL, no el 3307.
+// Conectar usando OCI8
+$conexion = @oci_connect($username, $password, $database, 'AL32UTF8');
 
-// Crear la conexión
-$conexion = new mysqli($servidor, $usuario, $contrasena, $base_de_datos, $puerto);
-
-// Verificar la conexión
-if ($conexion->connect_error) {
-  die("La conexión falló: " . $conexion->connect_error);
+if (!$conexion) {
+    $m = oci_error();
+    // Respondemos con JSON para que el Frontend no se rompa feo
+    echo json_encode(['error' => 'Error de conexión: ' . $m['message']]);
+    exit;
 }
 ?>

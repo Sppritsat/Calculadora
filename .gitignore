@@ -1,0 +1,12 @@
+# Ignorar carpetas de sistema
+.DS_Store
+Thumbs.db
+
+# Ignorar la carpeta de la base de datos (Pesada)
+oracle-data/
+
+# Ignorar librerías de terceros (se instalan solas)
+vendor/
+
+# Ignorar archivos de entorno locales (si tuvieras)
+.env
