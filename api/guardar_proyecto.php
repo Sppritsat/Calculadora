@@ -1,207 +1,188 @@
 <?php
-// Mostrar errores para depuración
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+// ==============================================================================
+// API: GUARDAR / ACTUALIZAR PROYECTO
+// Requiere sesión activa. Si el proyecto ya existe, valida que sea del usuario
+// antes de dejarlo modificarlo.
+// ==============================================================================
 
+require_once 'auth_guard.php'; // session_start() + header JSON + exige login
 require_once 'conexion.php';
 
-// Recibimos el JSON
-$input = file_get_contents('php://input');
-$datos = json_decode($input, true);
+$id_usuario = $_SESSION['id_usuario'];
 
-if (!$datos) {
+$input = json_decode(file_get_contents('php://input'), true);
+if (!$input) {
     echo json_encode(['status' => 'error', 'message' => 'No llegaron datos JSON']);
     exit;
 }
 
-$id_proyecto = isset($datos['id_proyecto']) && !empty($datos['id_proyecto']) ? $datos['id_proyecto'] : null;
+$id_proyecto = isset($input['id_proyecto']) && !empty($input['id_proyecto']) ? (int) $input['id_proyecto'] : null;
 
-// Lista de campos de la tabla PROYECTOS (Tal cual como los definimos en el script SQL)
-// Nota: En Oracle no usamos comillas invertidas ``
+// Columnas de la tabla PROYECTOS (deben coincidir con schema.sql)
 $campos = [
-    'NOMBRE_PROYECTO', 'POBLACION_TOTAL', 'PCT_MUJERES', 'PCT_RANGO_EDAD', 
-    'PCT_POBLACION_OCUPADA', 'PCT_CONCENTRACION_MERCADO', 'PARTICIPACION_MERCADO', 
-    'INCREMENTO_POBLACION', 'INCREMENTO_PRODUCTO', 'PENETRACION_INICIAL', 
-    'INCREMENTO_PENETRACION', 'PRECIO_UNITARIO_BASE', 'INCREMENTO_PRECIO', 
-    'UNIDADES_VENTA_A1', 'UNIDADES_VENTA_A2', 'UNIDADES_VENTA_A3', 
-    'UNIDADES_VENTA_A4', 'UNIDADES_VENTA_A5', 'DIAS_CREDITO_VENTAS', 
-    'DIAS_CREDITO_COMPRAS', 'DESCUENTO_PRONTO_PAGO', 'INV_INICIAL_PROD', 
-    'INV_FINAL_A1', 'INV_FINAL_A2', 'INV_FINAL_A3', 'INV_FINAL_A4', 'INV_FINAL_A5', 
-    'INV_INICIAL_MP', 'INV_FINAL_MP_PCT', 'TIEMPO_UNIDAD_MO', 'COSTO_HORA_MO',
-    'INVERSION_INICIAL', 'SALDO_INICIAL', 'PCT_COBRO_EFECTIVO', 'INFLACION_ANUAL',
-    'INV_INICIAL_PT'
+    'nombre_proyecto', 'poblacion_total', 'pct_mujeres', 'pct_rango_edad',
+    'pct_poblacion_ocupada', 'pct_concentracion_mercado', 'participacion_mercado',
+    'incremento_poblacion', 'incremento_producto', 'penetracion_inicial',
+    'incremento_penetracion', 'precio_unitario_base', 'incremento_precio',
+    'unidades_venta_a1', 'unidades_venta_a2', 'unidades_venta_a3',
+    'unidades_venta_a4', 'unidades_venta_a5', 'dias_credito_ventas',
+    'dias_credito_compras', 'descuento_pronto_pago', 'inv_inicial_prod',
+    'inv_final_a1', 'inv_final_a2', 'inv_final_a3', 'inv_final_a4', 'inv_final_a5',
+    'inv_inicial_mp', 'inv_final_mp_pct', 'tiempo_unidad_mo', 'costo_hora_mo',
+    'inversion_inicial', 'saldo_inicial', 'pct_cobro_efectivo', 'inflacion_anual',
 ];
-$tipos = 's' . str_repeat('d', 17) . 'ii' . str_repeat('d', 16);
 
-// Mapeo de las claves del JSON (minúsculas) a las columnas de Oracle (Mayúsculas)
 $valores = [];
-foreach ($campos as $columna) {
-    $clave_json = strtolower($columna); // Convertimos NOMBRE_PROYECTO -> nombre_proyecto
-    $valores[$columna] = $datos[$clave_json] ?? null;
+$params  = [];
+foreach ($campos as $col) {
+    // Importante: MySQL en modo estricto rechaza '' en columnas numéricas.
+    // Si el campo llegó vacío (usuario no lo llenó), lo mandamos como NULL.
+    $valor = $input[$col] ?? null;
+    if ($valor === '') {
+        $valor = null;
+    }
+    $valores[$col]  = $valor;
+    $params[":$col"] = $valor;
 }
 
 try {
-    // NO hay "begin_transaction" en OCI8. Las transacciones son automáticas.
-    // Solo hacemos commit al final.
+    $pdo->beginTransaction();
 
-    if (empty($id_proyecto)) {
+    if ($id_proyecto === null) {
         // --- INSERTAR NUEVO ---
-        
-        // Preparamos los placeholders :columna
-        $cols = implode(', ', array_keys($valores));
-        $binds = ':' . implode(', :', array_keys($valores));
-        
-        // TRUCO DE ORACLE: Usamos RETURNING para obtener el ID generado
-        $sql = "INSERT INTO PROYECTOS ($cols) VALUES ($binds) RETURNING ID_PROYECTO INTO :id_nuevo";
-        
-        $stmt = oci_parse($conexion, $sql);
-        
-        // Asignamos (Bindeamos) los valores
-        foreach ($valores as $col => $val) {
-            // OCI_BIND_BY_NAME necesita una variable por referencia, no un valor directo
-            // Por eso usamos $valores[$col]
-            oci_bind_by_name($stmt, ":$col", $valores[$col]);
-        }
-        
-        // Bindeamos la variable de salida para el ID
-        $id_nuevo = 0;
-        oci_bind_by_name($stmt, ":id_nuevo", $id_nuevo, -1, SQLT_INT);
-        
-        if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) { throw new Exception(oci_error($stmt)['message']); }
-        
-        $id_proyecto = $id_nuevo; // Ya tenemos el ID
-        oci_free_statement($stmt);
+        $cols  = implode(', ', array_keys($valores));
+        $binds = implode(', ', array_keys($params));
+
+        $sql = "INSERT INTO proyectos ($cols, fk_id_usuario) VALUES ($binds, :fk_id_usuario)";
+        $stmt = $pdo->prepare($sql);
+        $params[':fk_id_usuario'] = $id_usuario;
+        $stmt->execute($params);
+
+        $id_proyecto = (int) $pdo->lastInsertId();
 
     } else {
-        // --- ACTUALIZAR EXISTENTE ---
-        
+        // --- VALIDAR QUE EL PROYECTO SEA DEL USUARIO ANTES DE TOCARLO ---
+        $stmt = $pdo->prepare("SELECT fk_id_usuario FROM proyectos WHERE id_proyecto = :id");
+        $stmt->execute([':id' => $id_proyecto]);
+        $dueno = $stmt->fetchColumn();
+
+        if ($dueno === false) {
+            $pdo->rollBack();
+            echo json_encode(['status' => 'error', 'message' => 'El proyecto no existe']);
+            exit;
+        }
+        if ((int) $dueno !== (int) $id_usuario) {
+            $pdo->rollBack();
+            http_response_code(403);
+            echo json_encode(['status' => 'error', 'message' => 'No tienes permiso sobre este proyecto']);
+            exit;
+        }
+
+        // --- ACTUALIZAR ---
         $set_parts = [];
         foreach (array_keys($valores) as $col) {
             $set_parts[] = "$col = :$col";
         }
         $set_sql = implode(', ', $set_parts);
-        
-        $sql = "UPDATE PROYECTOS SET $set_sql WHERE ID_PROYECTO = :id_proy";
-        $stmt = oci_parse($conexion, $sql);
-        
-        foreach ($valores as $col => $val) {
-            oci_bind_by_name($stmt, ":$col", $valores[$col]);
-        }
-        oci_bind_by_name($stmt, ":id_proy", $id_proyecto);
-        
-        if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) { throw new Exception(oci_error($stmt)['message']); }
-        oci_free_statement($stmt);
-        
-        // Borrar hijos viejos para re-insertarlos (Manera fácil de actualizar detalles)
-        $tablas_hijas = ['INVERSIONES', 'MATERIAS_PRIMAS', 'GASTOS_ADMINISTRATIVOS', 'GASTOS_VENTAS', 'GASTOS_INDIRECTOS_FIJOS', 'GASTOS_INDIRECTOS_VARIABLES'];
-        foreach($tablas_hijas as $tabla) {
-            $sql_del = "DELETE FROM $tabla WHERE FK_ID_PROYECTO = :id";
-            $stmt_del = oci_parse($conexion, $sql_del);
-            oci_bind_by_name($stmt_del, ":id", $id_proyecto);
-            oci_execute($stmt_del, OCI_NO_AUTO_COMMIT);
-            oci_free_statement($stmt_del);
+
+        $sql = "UPDATE proyectos SET $set_sql WHERE id_proyecto = :id_proy AND fk_id_usuario = :fk_id_usuario";
+        $stmt = $pdo->prepare($sql);
+        $params[':id_proy']        = $id_proyecto;
+        $params[':fk_id_usuario']  = $id_usuario;
+        $stmt->execute($params);
+
+        // Borrar hijos viejos para re-insertarlos (misma estrategia que la versión original)
+        $tablas_hijas = ['inversiones', 'materias_primas', 'gastos_administrativos', 'gastos_ventas', 'gastos_indirectos_fijos', 'gastos_indirectos_variables'];
+        foreach ($tablas_hijas as $tabla) {
+            $stmt_del = $pdo->prepare("DELETE FROM $tabla WHERE fk_id_proyecto = :id");
+            $stmt_del->execute([':id' => $id_proyecto]);
         }
     }
 
     // --- INSERTAR DETALLES (Tablas Hijas) ---
-    
-    // 1. INVERSIONES
-    if (!empty($datos['inversiones'])) {
-        $sql = "INSERT INTO INVERSIONES (FK_ID_PROYECTO, NOMBRE_ACTIVO, MONTO, VIDA_UTIL_ANIOS, METODO_DEPRECIACION) VALUES (:id, :nom, :monto, :vida, :metodo)";
-        $stmt = oci_parse($conexion, $sql);
-        foreach ($datos['inversiones'] as $item) {
-            oci_bind_by_name($stmt, ":id", $id_proyecto);
-            oci_bind_by_name($stmt, ":nom", $item['nombre']);
-            oci_bind_by_name($stmt, ":monto", $item['monto']);
-            oci_bind_by_name($stmt, ":vida", $item['vida_util']);
-            oci_bind_by_name($stmt, ":metodo", $item['tipo']);
-            if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) throw new Exception("Error inversiones: ".oci_error($stmt)['message']);
+
+    if (!empty($input['inversiones'])) {
+        $stmt = $pdo->prepare("INSERT INTO inversiones (fk_id_proyecto, nombre_activo, monto, vida_util_anios, metodo_depreciacion) VALUES (:id, :nom, :monto, :vida, :metodo)");
+        foreach ($input['inversiones'] as $item) {
+            $stmt->execute([
+                ':id'     => $id_proyecto,
+                ':nom'    => $item['nombre'] ?? null,
+                ':monto'  => $item['monto'] ?? null,
+                ':vida'   => $item['vida_util'] ?? null,
+                ':metodo' => $item['tipo'] ?? null,
+            ]);
         }
-        oci_free_statement($stmt);
     }
 
-    // 2. MATERIAS PRIMAS
-    if (!empty($datos['materias_primas'])) {
-        $sql = "INSERT INTO MATERIAS_PRIMAS (FK_ID_PROYECTO, NOMBRE_MP, CANTIDAD_POR_UNIDAD_PROD, UNIDAD_MEDIDA, COSTO_UNITARIO) VALUES (:id, :nom, :cant, :uni, :costo)";
-        $stmt = oci_parse($conexion, $sql);
-        foreach ($datos['materias_primas'] as $item) {
-            oci_bind_by_name($stmt, ":id", $id_proyecto);
-            oci_bind_by_name($stmt, ":nom", $item['nombre']);
-            oci_bind_by_name($stmt, ":cant", $item['cantidad']);
-            oci_bind_by_name($stmt, ":uni", $item['unidad']);
-            oci_bind_by_name($stmt, ":costo", $item['costo_unitario']);
-            if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) throw new Exception("Error MP: ".oci_error($stmt)['message']);
+    if (!empty($input['materias_primas'])) {
+        $stmt = $pdo->prepare("INSERT INTO materias_primas (fk_id_proyecto, nombre_mp, cantidad_por_unidad_prod, unidad_medida, costo_unitario) VALUES (:id, :nom, :cant, :uni, :costo)");
+        foreach ($input['materias_primas'] as $item) {
+            $stmt->execute([
+                ':id'    => $id_proyecto,
+                ':nom'   => $item['nombre'] ?? null,
+                ':cant'  => $item['cantidad'] ?? null,
+                ':uni'   => $item['unidad'] ?? null,
+                ':costo' => $item['costo_unitario'] ?? null,
+            ]);
         }
-        oci_free_statement($stmt);
     }
 
-    // 3. GASTOS ADMIN
-    if (!empty($datos['gastos_admin'])) {
-        $sql = "INSERT INTO GASTOS_ADMINISTRATIVOS (FK_ID_PROYECTO, CONCEPTO, MONTO_MENSUAL) VALUES (:id, :con, :monto)";
-        $stmt = oci_parse($conexion, $sql);
-        foreach ($datos['gastos_admin'] as $item) {
-            oci_bind_by_name($stmt, ":id", $id_proyecto);
-            oci_bind_by_name($stmt, ":con", $item['concepto']);
-            oci_bind_by_name($stmt, ":monto", $item['monto_mensual']);
-            if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) throw new Exception("Error Admin: ".oci_error($stmt)['message']);
+    if (!empty($input['gastos_admin'])) {
+        $stmt = $pdo->prepare("INSERT INTO gastos_administrativos (fk_id_proyecto, concepto, monto_mensual) VALUES (:id, :con, :monto)");
+        foreach ($input['gastos_admin'] as $item) {
+            $stmt->execute([
+                ':id'    => $id_proyecto,
+                ':con'   => $item['concepto'] ?? null,
+                ':monto' => $item['monto_mensual'] ?? null,
+            ]);
         }
-        oci_free_statement($stmt);
     }
 
-    // 4. GASTOS VENTAS
-    if (!empty($datos['gastos_ventas'])) {
-        $sql = "INSERT INTO GASTOS_VENTAS (FK_ID_PROYECTO, CONCEPTO, PORCENTAJE_SOBRE_VENTAS) VALUES (:id, :con, :pct)";
-        $stmt = oci_parse($conexion, $sql);
-        foreach ($datos['gastos_ventas'] as $item) {
-            oci_bind_by_name($stmt, ":id", $id_proyecto);
-            oci_bind_by_name($stmt, ":con", $item['concepto']);
-            oci_bind_by_name($stmt, ":pct", $item['porcentaje_sobre_ventas']);
-            if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) throw new Exception("Error Ventas: ".oci_error($stmt)['message']);
+    if (!empty($input['gastos_ventas'])) {
+        $stmt = $pdo->prepare("INSERT INTO gastos_ventas (fk_id_proyecto, concepto, porcentaje_sobre_ventas) VALUES (:id, :con, :pct)");
+        foreach ($input['gastos_ventas'] as $item) {
+            $stmt->execute([
+                ':id'  => $id_proyecto,
+                ':con' => $item['concepto'] ?? null,
+                ':pct' => $item['porcentaje_sobre_ventas'] ?? null,
+            ]);
         }
-        oci_free_statement($stmt);
-    }
-    
-    // 5. GASTOS INDIRECTOS FIJOS
-    if (!empty($datos['gastos_fijos'])) {
-        $sql = "INSERT INTO GASTOS_INDIRECTOS_FIJOS (FK_ID_PROYECTO, CONCEPTO, MONTO_ANUAL) VALUES (:id, :con, :monto)";
-        $stmt = oci_parse($conexion, $sql);
-        foreach ($datos['gastos_fijos'] as $item) {
-            oci_bind_by_name($stmt, ":id", $id_proyecto);
-            oci_bind_by_name($stmt, ":con", $item['concepto']);
-            oci_bind_by_name($stmt, ":monto", $item['monto_anual']);
-            if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) throw new Exception("Error GIF: ".oci_error($stmt)['message']);
-        }
-        oci_free_statement($stmt);
     }
 
-    // 6. GASTOS INDIRECTOS VARIABLES
-    if (!empty($datos['gastos_variables'])) {
-        $sql = "INSERT INTO GASTOS_INDIRECTOS_VARIABLES (FK_ID_PROYECTO, CONCEPTO, POR_UNIDAD, UNIDAD) VALUES (:id, :con, :por, :uni)";
-        $stmt = oci_parse($conexion, $sql);
-        foreach ($datos['gastos_variables'] as $item) {
-            oci_bind_by_name($stmt, ":id", $id_proyecto);
-            oci_bind_by_name($stmt, ":con", $item['concepto']);
-            oci_bind_by_name($stmt, ":por", $item['por_unidad']);
-            oci_bind_by_name($stmt, ":uni", $item['unidad']);
-            if (!oci_execute($stmt, OCI_NO_AUTO_COMMIT)) throw new Exception("Error GIV: ".oci_error($stmt)['message']);
+    if (!empty($input['gastos_fijos'])) {
+        $stmt = $pdo->prepare("INSERT INTO gastos_indirectos_fijos (fk_id_proyecto, concepto, monto_anual) VALUES (:id, :con, :monto)");
+        foreach ($input['gastos_fijos'] as $item) {
+            $stmt->execute([
+                ':id'    => $id_proyecto,
+                ':con'   => $item['concepto'] ?? null,
+                ':monto' => $item['monto_anual'] ?? null,
+            ]);
         }
-        oci_free_statement($stmt);
     }
 
-    // --- CONFIRMAR TRANSACCIÓN ---
-    oci_commit($conexion);
-    
+    if (!empty($input['gastos_variables'])) {
+        $stmt = $pdo->prepare("INSERT INTO gastos_indirectos_variables (fk_id_proyecto, concepto, por_unidad, unidad) VALUES (:id, :con, :por, :uni)");
+        foreach ($input['gastos_variables'] as $item) {
+            $stmt->execute([
+                ':id'  => $id_proyecto,
+                ':con' => $item['concepto'] ?? null,
+                ':por' => $item['por_unidad'] ?? null,
+                ':uni' => $item['unidad'] ?? null,
+            ]);
+        }
+    }
+
+    $pdo->commit();
+
     echo json_encode([
-        'status' => 'success', 
-        'message' => 'Proyecto guardado correctamente en Oracle', 
-        'id_proyecto' => $id_proyecto
+        'status'      => 'success',
+        'message'     => 'Proyecto guardado correctamente',
+        'id_proyecto' => $id_proyecto,
     ]);
 
 } catch (Exception $e) {
-    // Si algo falla, deshacer todo
-    oci_rollback($conexion);
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
 }
-
-oci_close($conexion);
-?>

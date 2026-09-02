@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. TU SERVIDOR WEB (PHP + Apache)
+  # 1. SERVIDOR WEB (PHP + Apache + WebSocket, vía Supervisor)
   web:
     build: .
     container_name: apache_calculadora
@@ -10,57 +10,49 @@ services:
       - "8080:80"
       - "8081:8081"
     volumes:
-      # Sincronización de carpetas de código
+      # Sincronización de carpetas de código (para desarrollo en vivo)
       - ./api:/var/www/html/api
       - ./js:/var/www/html/js
       - ./style:/var/www/html/style
       - ./bin:/var/www/html/bin
       - ./index.html:/var/www/html/index.html
-      # Volumen para librerías (opcional, si lo necesitas)
+      # Volumen para vendor/ (Ratchet), se inicializa desde la imagen la primera vez
       - vendor-data:/var/www/html/vendor
     networks:
       - mi_red
     depends_on:
       - db
 
-  # 2. LA NUEVA BASE DE DATOS (ORACLE XE)
+  # 2. BASE DE DATOS (MySQL 8, reemplaza a Oracle XE)
   db:
-    image: gvenzl/oracle-xe:21-slim
-    container_name: oracle_db
+    image: mysql:8.0
+    container_name: mysql_calculadora
+    restart: unless-stopped
     environment:
-      ORACLE_PASSWORD: admin1234
-      APP_USER: usuario_finanzas
-      APP_USER_PASSWORD: admin1234
+      MYSQL_ROOT_PASSWORD: root_admin1234
+      MYSQL_DATABASE: analisis_financiero_db
+      MYSQL_USER: usuario_finanzas
+      MYSQL_PASSWORD: admin1234
     ports:
-      - "1521:1521"
+      - "3306:3306"
     volumes:
-      - oracle-data:/opt/oracle/oradata
+      - mysql-data:/var/lib/mysql
+      # Todo .sql en esta carpeta se ejecuta automáticamente la PRIMERA VEZ
+      # que se crea el volumen (así se crean las tablas + usuarios solitas).
+      # OJO: el nombre 'Bd' debe coincidir EXACTO con tu carpeta (Linux distingue mayúsculas/minúsculas).
+      - ./Bd:/docker-entrypoint-initdb.d
     networks:
       - mi_red
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_admin1234"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  # 3. RESPALDO (DESACTIVADO PARA ORACLE)
-  # Lo comentamos porque mysqldump no sirve aquí.
-  # cron_backup:
-  #   image: alpine:3.19
-  #   ... (código comentado) ...
-
-# 4. DEFINICIÓN DE VOLÚMENES Y REDES (¡ESTO FALTABA!)
 volumes:
-  oracle-data:
+  mysql-data:
   vendor-data:
 
 networks:
   mi_red:
     driver: bridge
-
-
-# CREATE OR REPLACE FUNCTION FN_CALCULAR_IVA (
-#     p_monto IN NUMBER)
-#  RETURN NUMBER IS
-#     v_iva NUMBER(18,4);
-# BEGIN
-#     v_iva := p_monto * 0.16; -- Tasa estándar del 16%
-#     RETURN v_iva;
-# END;
-# /
-
