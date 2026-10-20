@@ -464,18 +464,69 @@ function recalcularTodo() {
         G.precioUnitario = [];
         G.unidadesVenta = [];
         G.ventasProyeccion = [];
-        ANIOS.forEach(a => {
-            let precio = a === 0 ? precioBase : G.precioUnitario[a - 1] * (1 + incPrecio / 100);
-            if (a > 0 && redondearPrecio) precio = redondearArriba(precio);
-            G.precioUnitario[a] = precio;
-            G.unidadesVenta[a] = num(`unidades-${a + 1}`);
-            G.ventasProyeccion[a] = G.unidadesVenta[a] * precio;
+        G.costoMercancia = [0, 0, 0, 0, 0];
+
+        // Modo comercializadora: varios productos que se compran y se revenden
+        // (unidades crecen con "Incremento anual en unidades" de la pestaña 2,
+        //  precios con el incremento de precio y costos con el incremento del costo de MP)
+        const incCostoProd = num('inflacion-mp');
+        G.productos = [];
+        document.querySelectorAll('#productos-container .producto-item').forEach(fila => {
+            const nombre = fila.querySelector('.prod-nombre').value.trim();
+            const u0 = parseFloat(fila.querySelector('.prod-unidades').value) || 0;
+            const p0 = parseFloat(fila.querySelector('.prod-precio').value) || 0;
+            const c0 = parseFloat(fila.querySelector('.prod-costo').value) || 0;
+            if (!nombre || u0 <= 0) return;
+            const prod = { nombre, unidades: [], precio: [], costo: [], ventas: [], costoTotal: [] };
+            ANIOS.forEach(a => {
+                prod.unidades[a] = a === 0 ? u0 : redondearArriba(prod.unidades[a - 1] * (1 + incProducto / 100));
+                let pr = a === 0 ? p0 : prod.precio[a - 1] * (1 + incPrecio / 100);
+                if (a > 0 && redondearPrecio) pr = redondearArriba(pr);
+                prod.precio[a] = pr;
+                prod.costo[a] = c0 * Math.pow(1 + incCostoProd / 100, a);
+                prod.ventas[a] = prod.unidades[a] * pr;
+                prod.costoTotal[a] = prod.unidades[a] * prod.costo[a];
+            });
+            G.productos.push(prod);
         });
-        setHTML('ventas-proyeccion', tablaAnual([
-            { label: 'Unidades', data: G.unidadesVenta, fmt: v => fmtNum(v) },
-            { label: 'Precio', data: G.precioUnitario },
-            { label: 'Ventas', data: G.ventasProyeccion, negrita: true }
-        ]));
+
+        if (G.productos.length > 0) {
+            ANIOS.forEach(a => {
+                G.unidadesVenta[a] = G.productos.reduce((s, p) => s + p.unidades[a], 0);
+                G.ventasProyeccion[a] = G.productos.reduce((s, p) => s + p.ventas[a], 0);
+                G.costoMercancia[a] = G.productos.reduce((s, p) => s + p.costoTotal[a], 0);
+                G.precioUnitario[a] = G.unidadesVenta[a] > 0 ? G.ventasProyeccion[a] / G.unidadesVenta[a] : 0;
+                const input = document.getElementById(`unidades-${a + 1}`);
+                if (input) input.value = G.unidadesVenta[a];
+            });
+            let htmlProd = '';
+            G.productos.forEach(p => {
+                htmlProd += `<div class="font-semibold text-gray-700 mt-3">${p.nombre}</div>` + tablaAnual([
+                    { label: 'Unidades', data: p.unidades, fmt: v => fmtNum(v) },
+                    { label: 'Precio', data: p.precio },
+                    { label: 'Ventas', data: p.ventas },
+                    { label: 'Costo de venta', data: p.costoTotal }
+                ]);
+            });
+            setHTML('ventas-proyeccion', tablaAnual([
+                { label: 'Unidades (todos)', data: G.unidadesVenta, fmt: v => fmtNum(v) },
+                { label: 'Ventas totales', data: G.ventasProyeccion, negrita: true },
+                { label: 'Costo de la mercancía', data: G.costoMercancia, negrita: true }
+            ]) + htmlProd);
+        } else {
+            ANIOS.forEach(a => {
+                let precio = a === 0 ? precioBase : G.precioUnitario[a - 1] * (1 + incPrecio / 100);
+                if (a > 0 && redondearPrecio) precio = redondearArriba(precio);
+                G.precioUnitario[a] = precio;
+                G.unidadesVenta[a] = num(`unidades-${a + 1}`);
+                G.ventasProyeccion[a] = G.unidadesVenta[a] * precio;
+            });
+            setHTML('ventas-proyeccion', tablaAnual([
+                { label: 'Unidades', data: G.unidadesVenta, fmt: v => fmtNum(v) },
+                { label: 'Precio', data: G.precioUnitario },
+                { label: 'Ventas', data: G.ventasProyeccion, negrita: true }
+            ]));
+        }
 
         // ---------- 4. PRESUPUESTO DE PRODUCCIÓN ----------
         const diasLaborables = num('dias-laborables', 260);
@@ -583,10 +634,19 @@ function recalcularTodo() {
                 { label: 'Valor', data: mp.invFinalValor }
             ]);
         });
+        if (G.productos.length > 0) {
+            // La mercancía para reventa se compra y se vende en el mismo año (sin inventario)
+            ANIOS.forEach(a => {
+                G.comprasMP[a] += G.costoMercancia[a];
+                G.mpUtilizada[a] += G.costoMercancia[a];
+            });
+            htmlCompras += '<div class="font-semibold text-gray-700 mt-3">Mercancía para reventa (pestaña 3)</div>' +
+                tablaAnual([{ label: 'Costo total', data: G.costoMercancia }]);
+        }
         htmlCompras += '<div class="font-bold text-indigo-600 mt-4">Total de compras</div>' + tablaAnual([
             { label: 'Total compras', data: G.comprasMP, negrita: true }
         ]);
-        setHTML('compras-mp-resultado', G.materiaPrima.length ? htmlCompras : '<p>Configure costos y consumo de MP</p>');
+        setHTML('compras-mp-resultado', (G.materiaPrima.length || G.productos.length) ? htmlCompras : '<p>Configure costos y consumo de MP</p>');
 
         // ---------- 7. MANO DE OBRA DIRECTA ----------
         const tiempo = num('tiempo-unidad');
@@ -781,6 +841,8 @@ function recalcularTodo() {
         // ---------- 15a. FINANCIAMIENTO (se necesita antes del ERI por los intereses) ----------
         G.inversionTotal = num('inversion-inicial', G.activoFijo);
         G.saldoInicialExtra = num('saldo-inicial');
+        // Inventario que se compra con la inversión inicial y se mantiene (capital de trabajo)
+        G.invCapitalTrabajo = num('inv-capital-trabajo');
         const pctFinanciamiento = num('pct-financiamiento');
         const tasaInteres = num('tasa-interes');
         const plazoAnios = num('plazo-credito', 5);
@@ -858,7 +920,7 @@ function recalcularTodo() {
         G.flujoNeto = [];
         G.saldoEfectivo = [];
         // Año 0: entra la aportación + el crédito (+ saldo inicial extra) y sale el activo fijo
-        G.saldoEfectivo0 = G.inversionTotal + G.saldoInicialExtra - G.activoFijo;
+        G.saldoEfectivo0 = G.inversionTotal + G.saldoInicialExtra - G.activoFijo - G.invCapitalTrabajo;
         let saldoAnterior = G.saldoEfectivo0;
         ANIOS.forEach(a => {
             const cxcAnterior = a === 0 ? 0 : G.cuentasPorCobrar[a - 1];
@@ -881,7 +943,8 @@ function recalcularTodo() {
             { label: 'Crédito bancario', data: v0(G.credito) },
             { label: 'Cobranza (ventas − CxC + CxC año anterior)', data: conCero(G.cobros) },
             { seccion: 'EGRESOS', clase: 'bg-red-50' },
-            { label: 'Inversión en activo fijo', data: v0(G.activoFijo) },
+            { label: 'Inversión en activo fijo y diferido', data: v0(G.activoFijo) },
+            ...(G.invCapitalTrabajo ? [{ label: 'Inventario inicial (capital de trabajo)', data: v0(G.invCapitalTrabajo) }] : []),
             { label: 'Pago a proveedores de MP', data: conCero(G.pagosProveedores) },
             { label: 'Mano de obra directa', data: conCero(G.costoMO) },
             { label: 'Gastos indirectos', data: conCero(G.gastosIndirectos) },
@@ -909,7 +972,7 @@ function recalcularTodo() {
             depAcum += G.depreciacion[a];
             G.depAcumulada[a] = depAcum;
             G.activoFijoNeto[a] = G.activoFijo - depAcum;
-            G.activoCirculante[a] = G.saldoEfectivo[a] + G.cuentasPorCobrar[a] + G.invFinalMP[a] + G.invFinalPT[a];
+            G.activoCirculante[a] = G.saldoEfectivo[a] + G.cuentasPorCobrar[a] + G.invFinalMP[a] + G.invFinalPT[a] + G.invCapitalTrabajo;
             G.activoTotal[a] = G.activoCirculante[a] + G.activoFijoNeto[a];
             G.pasivoTotal[a] = G.cuentasPorPagar[a] + G.saldoDeuda[a];
             G.utilidadesAnteriores[a] = utilAcum;
@@ -925,6 +988,7 @@ function recalcularTodo() {
             { label: 'Cuentas por cobrar', data: G.cuentasPorCobrar },
             { label: 'Inventario final de MP', data: G.invFinalMP },
             { label: 'Inventario final de PT', data: G.invFinalPT },
+            ...(G.invCapitalTrabajo ? [{ label: 'Inventario (capital de trabajo)', data: ANIOS.map(() => G.invCapitalTrabajo) }] : []),
             { label: 'Total activo circulante', data: G.activoCirculante, negrita: true },
             { label: 'Activo fijo (costo)', data: ANIOS.map(() => G.activoFijo) },
             { label: '(−) Depreciación acumulada', data: G.depAcumulada },
@@ -1017,8 +1081,12 @@ function calcularEvaluacion(tasaImpuestos, tasaInteres) {
     const V = E + D;
     G.wacc = V > 0 ? (E / V) * ke + (D / V) * kd * (1 - tasaImpuestos) : ke;
 
-    // Flujo del proyecto = flujo neto + intereses + amortización (antes de financiamiento)
-    G.flujoProyecto = ANIOS.map(a => G.flujoNeto[a] + G.intereses[a] + G.amortizacion[a]);
+    // Método "proyecto": flujo neto + intereses + amortización (antes de financiamiento)
+    // Método "flujo-neto": el flujo neto del flujo de efectivo tal cual (como el ejercicio de Lácteos)
+    const metodo = document.getElementById('metodo-vpn')?.value || 'proyecto';
+    G.flujoProyecto = ANIOS.map(a => metodo === 'flujo-neto'
+        ? G.flujoNeto[a]
+        : G.flujoNeto[a] + G.intereses[a] + G.amortizacion[a]);
     const flujos = [-G.inversionTotal, ...G.flujoProyecto];
     G.vpn = vpn(G.wacc, flujos);
     G.tir = tir(flujos);
@@ -1054,14 +1122,14 @@ function calcularEvaluacion(tasaImpuestos, tasaInteres) {
         </div>
         <p class="text-xs text-gray-500 mb-2">WACC = E/(D+E)·ke + D/(D+E)·kd·(1−t), con E = ${fmtMoneda(E)}, D = ${fmtMoneda(D)}, ke = ${(ke * 100).toFixed(2)}%, kd = ${(kd * 100).toFixed(2)}%, t = ${(tasaImpuestos * 100).toFixed(0)}% (ISR + PTU).</p>`;
     htmlEval += tablaAnual([
-        { label: 'Flujo del proyecto', data: [-G.inversionTotal, ...G.flujoProyecto] },
+        { label: metodo === 'flujo-neto' ? 'Flujo neto' : 'Flujo del proyecto', data: [-G.inversionTotal, ...G.flujoProyecto] },
         { label: 'Flujo descontado (WACC)', data: flujos.map((f, t) => f / Math.pow(1 + G.wacc, t)) }
     ], true);
     setHTML('evaluacion-resultado', htmlEval);
 
     // Razones financieras
     const pasivoCirculante = ANIOS.map(a => G.cuentasPorPagar[a] + (a < 4 ? G.amortizacion[a + 1] : G.saldoDeuda[a]));
-    const inventarios = ANIOS.map(a => G.invFinalMP[a] + G.invFinalPT[a]);
+    const inventarios = ANIOS.map(a => G.invFinalMP[a] + G.invFinalPT[a] + (G.invCapitalTrabajo || 0));
     const div = (x, y) => (y ? x / y : NaN);
     // Apalancamiento: costos variables = MP utilizada + MOD + GIF variables + gastos de venta
     const margenContribucion = ANIOS.map(a => G.ventasProyeccion[a] - (G.mpUtilizada[a] + G.costoMO[a] + G.gifVariables[a] + G.gastosVentas[a]));
@@ -1159,6 +1227,15 @@ function agregarInversion(inversion = null) {
     container.appendChild(newRow);
 }
 
+function agregarProducto(prod = null) {
+    const container = document.getElementById('productos-container');
+    const newRow = document.createElement('div');
+    newRow.className = 'producto-item grid grid-cols-4 gap-2 mb-2';
+    const v = (k) => (prod && prod[k] !== undefined && prod[k] !== null) ? prod[k] : '';
+    newRow.innerHTML = `<input type="text" placeholder="Producto" class="prod-nombre text-sm" data-opcional onchange="recalcularTodo()" value="${String(v('nombre')).replace(/"/g, '&quot;')}"><input type="number" placeholder="Unidades año 1" class="prod-unidades text-sm" data-opcional step="any" onchange="recalcularTodo()" value="${v('unidades')}"><input type="number" placeholder="Precio venta" class="prod-precio text-sm" data-opcional step="any" onchange="recalcularTodo()" value="${v('precio')}"><input type="number" placeholder="Costo unitario" class="prod-costo text-sm" data-opcional step="any" onchange="recalcularTodo()" value="${v('costo')}">`;
+    container.appendChild(newRow);
+}
+
 function agregarMateriaPrima(mp = null) {
     const container = document.getElementById('receta-container');
     const newRow = document.createElement('div');
@@ -1217,7 +1294,7 @@ const CAMPOS_EXTRA = [
     'usos-mensuales', 'dias-inventario', 'dias-laborables', 'inflacion-mp',
     'tiempo-unidad-tipo', 'horas-jornada', 'incremento-salarial', 'pct-carga-social',
     'tasa-isr', 'tasa-ptu', 'pct-financiamiento', 'tasa-interes', 'plazo-credito',
-    'tasa-ke', 'inv-inicial-pt'
+    'tasa-ke', 'inv-inicial-pt', 'inv-capital-trabajo', 'metodo-vpn'
 ];
 
 function recolectarParametrosExtra() {
@@ -1227,6 +1304,14 @@ function recolectarParametrosExtra() {
         if (el) extra[id] = el.value;
     });
     extra['redondear-precio'] = document.getElementById('redondear-precio')?.checked || false;
+    extra.productos = [];
+    document.querySelectorAll('#productos-container .producto-item').forEach(fila => {
+        const nombre = fila.querySelector('.prod-nombre').value;
+        const unidades = fila.querySelector('.prod-unidades').value;
+        if (nombre && unidades) {
+            extra.productos.push({ nombre, unidades, precio: fila.querySelector('.prod-precio').value, costo: fila.querySelector('.prod-costo').value });
+        }
+    });
     extra.tipos_gasto_admin = [];
     document.querySelectorAll('#gastos-admin-container .gasto-admin-item').forEach(fila => {
         const concepto = fila.querySelector('.gasto-admin-concepto').value;
@@ -1247,6 +1332,12 @@ function aplicarParametrosExtra(extra) {
     });
     const chk = document.getElementById('redondear-precio');
     if (chk) chk.checked = !!extra['redondear-precio'];
+    const cont = document.getElementById('productos-container');
+    if (cont) {
+        cont.innerHTML = '';
+        (extra.productos || []).forEach(p => agregarProducto(p));
+        if (!cont.children.length) agregarProducto();
+    }
 }
 
 // ===========================
@@ -1274,6 +1365,9 @@ function nuevoProyecto() {
     document.getElementById('gastos-ventas-container').innerHTML = '';
     document.getElementById('gastos-fijos-container').innerHTML = '';
     document.getElementById('gastos-variables-container').innerHTML = '';
+    document.getElementById('productos-container').innerHTML = '';
+    const metodoVpn = document.getElementById('metodo-vpn');
+    if (metodoVpn) metodoVpn.value = 'proyecto';
     _firmaMP = null;
     const chkPrecio = document.getElementById('redondear-precio');
     if (chkPrecio) chkPrecio.checked = false;
@@ -1298,6 +1392,7 @@ function nuevoProyecto() {
     agregarGastoVentas();
     agregarGastoFijo();
     agregarGastoVariable();
+    agregarProducto();
 
     // Llama a las funciones principales para limpiar los paneles de resultados
     recalcularTodo();
@@ -1733,7 +1828,7 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('poblacion-ocupada').addEventListener('change', calcularPlan);
     document.getElementById('concentracion-mercado').addEventListener('change', calcularPlan);
 
-    ['inversiones-container', 'receta-container', 'gastos-admin-container', 'gastos-ventas-container', 'gastos-fijos-container', 'gastos-variables-container']
+    ['inversiones-container', 'receta-container', 'gastos-admin-container', 'gastos-ventas-container', 'gastos-fijos-container', 'gastos-variables-container', 'productos-container']
         .forEach(id => { const c = document.getElementById(id); if (c) c.innerHTML = ''; });
     agregarInversion();
     agregarMateriaPrima();
@@ -1741,6 +1836,7 @@ document.addEventListener('DOMContentLoaded', function () {
     agregarGastoVentas();
     agregarGastoFijo();
     agregarGastoVariable();
+    agregarProducto();
     recalcularTodo();
 
     console.log('Sistema de Análisis Financiero v3.0 FINAL Cargado y Limpio');
@@ -1834,7 +1930,10 @@ function realizarConversion(factor) {
         '.gasto-fijo-monto',    // Gastos fijos
         '.gasto-var-unidad',    // Gastos variables
         '.gasto-admin-monto',   // Gastos administrativos
-        '#inv-inicial-pt'       // Costo unitario del inventario inicial de PT
+        '#inv-inicial-pt',      // Costo unitario del inventario inicial de PT
+        '#inv-capital-trabajo', // Inventario de capital de trabajo
+        '.prod-precio',         // Precios de productos
+        '.prod-costo'           // Costos de productos
     ];
 
     // 2. Convertimos los valores matemáticamente
