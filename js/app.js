@@ -1187,7 +1187,7 @@ function agregarGastoVariable(gasto = null) {
     const concepto = gasto ? gasto.concepto : '';
     const porUnidad = gasto ? gasto.por_unidad : '';
     const unidad = gasto ? gasto.unidad : '';
-    newRow.innerHTML = `<input type="text" placeholder="Concepto" class="gasto-var-concepto text-sm" value="${concepto || ''}"><input type="number" placeholder="Por unidad" class="gasto-var-unidad text-sm" step="any" onchange="calcularGastosIndirectos()" value="${porUnidad || ''}"><input type="text" placeholder="Unidad" class="gasto-var-tipo text-sm" value="${unidad || ''}">`;
+    newRow.innerHTML = `<input type="text" placeholder="Concepto" class="gasto-var-concepto text-sm" data-opcional value="${concepto || ''}"><input type="number" placeholder="Por unidad" class="gasto-var-unidad text-sm" data-opcional step="any" onchange="calcularGastosIndirectos()" value="${porUnidad || ''}"><input type="text" placeholder="Unidad" class="gasto-var-tipo text-sm" data-opcional value="${unidad || ''}">`;
     container.appendChild(newRow);
 }
 
